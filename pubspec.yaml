@@ -28,6 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  geolocator: ^10.1.0
+  permission_handler: ^11.0.1
   flutter:
     sdk: flutter
 
