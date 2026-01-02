@@ -18,11 +18,9 @@ class AttendanceService extends ChangeNotifier {
   String? _dayType;
   int _graceMinutes = 0;
 
-  // History State
   List<Map<String, dynamic>> _history = [];
   int _monthlyGraceTotal = 0;
 
-  // Getters
   bool get isPunchedIn => _isPunchedIn;
   String? get dayType => _dayType;
   int get graceMinutes => _graceMinutes;
@@ -51,15 +49,11 @@ class AttendanceService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // NEW: Fetch all history and calculate monthly grace usage
   Future<void> fetchHistory() async {
     _history = await _db.getAllAttendance();
-
-    // Calculate Monthly Grace (Current Month)
     final now = DateTime.now();
     final monthKey = "${now.year}-${now.month.toString().padLeft(2, '0')}";
     _monthlyGraceTotal = await _db.getMonthlyGraceTotal(monthKey);
-
     notifyListeners();
   }
 
@@ -69,7 +63,6 @@ class AttendanceService extends ChangeNotifier {
   }) async {
     final time = customDateTime ?? DateTime.now();
     await _handlePunch(time, punchType);
-    // Refresh history if a punch happens
     await fetchHistory();
   }
 
@@ -94,11 +87,18 @@ class AttendanceService extends ChangeNotifier {
       _isPunchedIn = true;
     } else {
       final firstIn = DateTime.parse(attendance!['punch_in']);
+
+      // LOGIC FIX START
       final isHalfDay = _isHalfDay(firstIn, time);
-      int grace = !isHalfDay
-          ? (_lateEntryGrace(firstIn) + _earlyExitGrace(time))
-          : 0;
+      int grace = 0;
+
+      if (!isHalfDay) {
+        // Only calculate grace if it's a FULL day
+        grace = _lateEntryGrace(firstIn) + _earlyExitGrace(time);
+      }
+
       final type = isHalfDay ? 'HALF' : 'FULL';
+      // LOGIC FIX END
 
       await _db.updatePunchOut(
         attendanceId: attendance['id'],
@@ -138,11 +138,16 @@ class AttendanceService extends ChangeNotifier {
       outTime.minute,
     );
 
+    // LOGIC FIX START
     final isHalfDay = _isHalfDay(fullIn, fullOut);
-    int grace = !isHalfDay
-        ? (_lateEntryGrace(fullIn) + _earlyExitGrace(fullOut))
-        : 0;
+    int grace = 0;
+
+    if (!isHalfDay) {
+      grace = _lateEntryGrace(fullIn) + _earlyExitGrace(fullOut);
+    }
+
     final type = isHalfDay ? 'HALF' : 'FULL';
+    // LOGIC FIX END
 
     await _db.insertManualOverride(
       date: dateStr,
@@ -152,8 +157,7 @@ class AttendanceService extends ChangeNotifier {
       type: type,
     );
 
-    await fetchHistory(); // Always refresh history after override
-
+    await fetchHistory();
     final today = DateTime.now();
     if (selectedDate.day == today.day && selectedDate.month == today.month) {
       await loadTodayAttendance();
@@ -168,15 +172,11 @@ class AttendanceService extends ChangeNotifier {
     _isPunchedIn = false;
   }
 
+  // UPDATED HALF DAY LOGIC: Based on working hours
   bool _isHalfDay(DateTime inT, DateTime outT) {
-    final noon = DateTime(
-      inT.year,
-      inT.month,
-      inT.day,
-      halfDayHour,
-      halfDayMinute,
-    );
-    return inT.isAfter(noon) || outT.isBefore(noon);
+    final durationMinutes = outT.difference(inT).inMinutes;
+    // If worked less than 5 hours (300 minutes), it's a Half Day
+    return durationMinutes < 300;
   }
 
   int _lateEntryGrace(DateTime inT) {
