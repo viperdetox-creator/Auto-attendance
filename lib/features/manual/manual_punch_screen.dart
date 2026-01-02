@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../../core/services/attendance_service.dart';
 
 class ManualPunchScreen extends StatefulWidget {
@@ -11,89 +10,150 @@ class ManualPunchScreen extends StatefulWidget {
 }
 
 class _ManualPunchScreenState extends State<ManualPunchScreen> {
-  bool _isPunchedIn = false;
+  DateTime _selDate = DateTime.now();
+  TimeOfDay _inT = const TimeOfDay(hour: 9, minute: 30);
+  TimeOfDay _outT = const TimeOfDay(hour: 15, minute: 30);
 
-  Future<void> _manualPunch() async {
-    final attendanceService = context.read<AttendanceService>();
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AttendanceService>(
+      builder: (context, service, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Manual Attendance'),
+            centerTitle: true,
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _header("Live Status (Sync)"),
+                _liveCard(service),
+                const SizedBox(height: 30),
+                _header("Manual Override (Today/Yesterday)"),
+                _overrideCard(service),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
-    await attendanceService.handlePunch(punchType: 'manual');
+  Widget _header(String t) => Padding(
+    padding: const EdgeInsets.only(bottom: 8, left: 4),
+    child: Text(
+      t,
+      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
+    ),
+  );
 
-    setState(() {
-      _isPunchedIn = !_isPunchedIn;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          _isPunchedIn
-              ? 'Manual Punch In Successful'
-              : 'Manual Punch Out Successful',
+  Widget _liveCard(AttendanceService service) {
+    bool isIn = service.isPunchedIn;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: isIn ? Colors.redAccent : Colors.indigo,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          icon: Icon(isIn ? Icons.logout : Icons.fingerprint),
+          label: Text(isIn ? 'Manual Punch Out' : 'Manual Punch In'),
+          onPressed: () => service.handlePunch(punchType: 'manual'),
         ),
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Manual Attendance')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+  Widget _overrideCard(AttendanceService service) {
+    return Card(
+      color: Colors.grey.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _infoCard(),
-            const SizedBox(height: 20),
-            _dateTimeCard(),
-            const SizedBox(height: 20),
-            _punchButton(),
+            _tile(
+              "Date",
+              "${_selDate.day}/${_selDate.month}/${_selDate.year}",
+              Icons.event,
+              () async {
+                final d = await showDatePicker(
+                  context: context,
+                  initialDate: _selDate,
+                  firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                  lastDate: DateTime.now(),
+                );
+                if (d != null) setState(() => _selDate = d);
+              },
+            ),
+            _tile("In Time", _inT.format(context), Icons.login, () async {
+              final t = await showTimePicker(
+                context: context,
+                initialTime: _inT,
+              );
+              if (t != null) setState(() => _inT = t);
+            }),
+            _tile("Out Time", _outT.format(context), Icons.logout, () async {
+              final t = await showTimePicker(
+                context: context,
+                initialTime: _outT,
+              );
+              if (t != null) setState(() => _outT = t);
+            }),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => _confirm(service),
+                child: const Text("Save Manual Record"),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _infoCard() {
-    return const Card(
-      child: Padding(
-        padding: EdgeInsets.all(16),
-        child: Text(
-          'Use manual attendance only if automatic punching fails.',
-          style: TextStyle(fontSize: 14),
+  Widget _tile(String t, String s, IconData i, VoidCallback onTap) => ListTile(
+    leading: Icon(i, color: Colors.indigo),
+    title: Text(t),
+    subtitle: Text(s, style: const TextStyle(fontWeight: FontWeight.bold)),
+    trailing: const Icon(Icons.edit, size: 20),
+    onTap: onTap,
+  );
+
+  void _confirm(AttendanceService service) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Confirm Override"),
+        content: const Text(
+          "This will replace any existing logs for this date. Proceed?",
         ),
-      ),
-    );
-  }
-
-  Widget _dateTimeCard() {
-    final now = DateTime.now();
-
-    return Card(
-      child: Column(
-        children: [
-          ListTile(
-            leading: const Icon(Icons.calendar_today),
-            title: const Text('Date'),
-            trailing: Text('${now.day}/${now.month}/${now.year}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
           ),
-          const Divider(height: 1),
-          ListTile(
-            leading: const Icon(Icons.access_time),
-            title: const Text('Time'),
-            trailing: Text(
-              '${now.hour}:${now.minute.toString().padLeft(2, '0')}',
-            ),
+          ElevatedButton(
+            onPressed: () {
+              service.manualOverridePunch(
+                selectedDate: _selDate,
+                inTime: _inT,
+                outTime: _outT,
+              );
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text("Record Updated")));
+            },
+            child: const Text("Save"),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _punchButton() {
-    return ElevatedButton.icon(
-      icon: Icon(_isPunchedIn ? Icons.logout : Icons.login),
-      label: Text(_isPunchedIn ? 'Manual Punch Out' : 'Manual Punch In'),
-      onPressed: _manualPunch,
     );
   }
 }

@@ -11,16 +11,6 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
-  void initState() {
-    super.initState();
-
-    // Load attendance after first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<AttendanceService>().loadTodayAttendance();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     final service = context.watch<AttendanceService>();
 
@@ -40,11 +30,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               const SizedBox(height: 16),
               _attendanceStatusCard(service),
               const SizedBox(height: 16),
-
-              // ✅ NEW: CIRCULAR GRACE UI
               _graceProgressCard(service),
-
-              const SizedBox(height: 20),
+              const SizedBox(height: 24),
               _manualPunchButton(context, service),
             ],
           ),
@@ -53,7 +40,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ================= STATUS CARD =================
   Widget _statusCard(AttendanceService service) {
     return Card(
       color: service.isInside ? Colors.green.shade100 : Colors.red.shade100,
@@ -75,7 +61,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ================= PUNCH CARD =================
   Widget _punchCard(BuildContext context, AttendanceService service) {
     return Card(
       elevation: 2,
@@ -109,13 +94,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ================= FULL / HALF + GRACE USED =================
   Widget _attendanceStatusCard(AttendanceService service) {
-    if (service.dayType == null) {
-      return const SizedBox();
-    }
-
     final isHalfDay = service.dayType == 'HALF';
+    if (service.punchIn == null) return const SizedBox();
 
     return Card(
       color: isHalfDay ? Colors.orange.shade100 : Colors.green.shade100,
@@ -125,7 +106,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           color: isHalfDay ? Colors.orange : Colors.green,
         ),
         title: Text(
-          isHalfDay ? 'HALF DAY' : 'FULL DAY',
+          service.dayType ?? 'SHIFT IN PROGRESS',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text('Grace Used Today: ${service.graceMinutes} minutes'),
@@ -133,67 +114,66 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ================= CIRCULAR GRACE PROGRESS =================
   Widget _graceProgressCard(AttendanceService service) {
     const int totalGrace = 250;
-
-    if (service.dayType == null) {
-      return const SizedBox();
-    }
-
-    final int graceLeft = totalGrace - service.graceMinutes;
+    final int graceLeft = (totalGrace - service.graceMinutes).clamp(
+      0,
+      totalGrace,
+    );
     final double progress = (graceLeft / totalGrace).clamp(0.0, 1.0);
 
-    Color color;
-    if (graceLeft < 50) {
-      color = Colors.red;
-    } else if (graceLeft < 150) {
-      color = Colors.orange;
-    } else {
-      color = Colors.green;
-    }
+    Color color = graceLeft < 50
+        ? Colors.red
+        : (graceLeft < 150 ? Colors.orange : Colors.green);
 
     return Card(
       elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
         child: Column(
           children: [
             const Text(
               'Monthly Grace Balance',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: 150,
-              height: 150,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value: progress,
-                    strokeWidth: 10,
-                    color: color,
-                    backgroundColor: Colors.grey.shade300,
-                  ),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Grace Left',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
+            const SizedBox(height: 30),
+            Center(
+              child: SizedBox(
+                width: 180, // Larger size for the circle
+                height: 180,
+                child: Stack(
+                  fit: StackFit
+                      .expand, // Ensures the indicator fills the SizedBox
+                  children: [
+                    CircularProgressIndicator(
+                      value: progress,
+                      strokeWidth: 14, // Thicker stroke
+                      color: color,
+                      backgroundColor: Colors.grey.shade200,
+                      strokeCap: StrokeCap.round, // Modern rounded edges
+                    ),
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Grace Left',
+                            style: TextStyle(fontSize: 14, color: Colors.grey),
+                          ),
+                          Text(
+                            '$graceLeft min',
+                            style: TextStyle(
+                              fontSize: 28, // Larger text inside
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        '$graceLeft min',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -202,19 +182,38 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  // ================= MANUAL PUNCH =================
   Widget _manualPunchButton(BuildContext context, AttendanceService service) {
+    bool isPunchedIn = service.isPunchedIn;
+
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        icon: const Icon(Icons.fingerprint),
-        label: const Text('Manual Punch'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isPunchedIn ? Colors.redAccent : Colors.indigo,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        icon: Icon(isPunchedIn ? Icons.logout : Icons.fingerprint),
+        label: Text(
+          isPunchedIn ? 'Manual Punch Out' : 'Manual Punch In',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         onPressed: () async {
           await service.handlePunch(punchType: 'manual');
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Punch recorded successfully')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  isPunchedIn
+                      ? 'Punched Out Successfully'
+                      : 'Punched In Successfully',
+                ),
+              ),
+            );
+          }
         },
       ),
     );

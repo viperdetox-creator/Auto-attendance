@@ -3,43 +3,30 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 class DatabaseHelper {
-  // ===============================
-  // SINGLETON
-  // ===============================
   static final DatabaseHelper instance = DatabaseHelper._internal();
   static Database? _database;
 
   DatabaseHelper._internal();
-
   factory DatabaseHelper() => instance;
 
-  // ===============================
-  // DATABASE GETTER
-  // ===============================
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  // ===============================
-  // INIT DATABASE
-  // ===============================
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'attendance.db');
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
 
-  // ===============================
-  // ON CREATE
-  // ===============================
   Future<void> _onCreate(Database db, int version) async {
     await db.execute(_createUserTable);
     await db.execute(_createAttendanceTable);
@@ -47,20 +34,19 @@ class DatabaseHelper {
     await _insertDefaultUser(db);
   }
 
-  // ===============================
-  // ON UPGRADE
-  // ===============================
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute(
         "ALTER TABLE attendance ADD COLUMN attendance_type TEXT",
       );
     }
+    if (oldVersion < 3) {
+      await db.execute(
+        "ALTER TABLE attendance ADD COLUMN is_active INTEGER DEFAULT 0",
+      );
+    }
   }
 
-  // ===============================
-  // TABLE DEFINITIONS
-  // ===============================
   static const String _createUserTable = '''
     CREATE TABLE user (
       id INTEGER PRIMARY KEY,
@@ -79,7 +65,8 @@ class DatabaseHelper {
       used_grace_minutes INTEGER,
       attendance_type TEXT,
       punch_type TEXT,
-      edited INTEGER DEFAULT 0
+      edited INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 0
     )
   ''';
 
@@ -91,9 +78,6 @@ class DatabaseHelper {
     )
   ''';
 
-  // ===============================
-  // DEFAULT USER
-  // ===============================
   Future<void> _insertDefaultUser(Database db) async {
     await db.insert('user', {
       'id': 1,
@@ -102,27 +86,21 @@ class DatabaseHelper {
     });
   }
 
-  // ======================================================
-  // ATTENDANCE OPERATIONS
-  // ======================================================
-
-  /// Punch In (auto / manual)
   Future<int> insertPunchIn({
     required String date,
     required String punchInTime,
     required String punchType,
   }) async {
     final db = await database;
-
     return await db.insert('attendance', {
       'date': date,
       'punch_in': punchInTime,
       'punch_type': punchType,
+      'is_active': 1,
       'edited': punchType == 'manual' ? 1 : 0,
     });
   }
 
-  /// Punch Out (FINAL, STABLE SIGNATURE)
   Future<int> updatePunchOut({
     required int attendanceId,
     required String punchOutTime,
@@ -131,7 +109,6 @@ class DatabaseHelper {
     required String attendanceType,
   }) async {
     final db = await database;
-
     return await db.update(
       'attendance',
       {
@@ -139,33 +116,70 @@ class DatabaseHelper {
         'duration_minutes': durationMinutes,
         'used_grace_minutes': usedGraceMinutes,
         'attendance_type': attendanceType,
+        'is_active': 0,
       },
       where: 'id = ?',
       whereArgs: [attendanceId],
     );
   }
 
-  /// Get attendance for a date
+  Future<int> insertManualOverride({
+    required String date,
+    required String punchIn,
+    required String punchOut,
+    required int grace,
+    required String type,
+  }) async {
+    final db = await database;
+    return await db.insert('attendance', {
+      'date': date,
+      'punch_in': punchIn,
+      'punch_out': punchOut,
+      'used_grace_minutes': grace,
+      'attendance_type': type,
+      'is_active': 0,
+      'punch_type': 'manual_override',
+      'edited': 1,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateAttendanceStatus(int id, int isActive) async {
+    final db = await database;
+    return await db.update(
+      'attendance',
+      {'is_active': isActive},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<Map<String, dynamic>?> getAttendanceByDate(String date) async {
     final db = await database;
-
     final result = await db.query(
       'attendance',
       where: 'date = ?',
       whereArgs: [date],
       limit: 1,
     );
-
     return result.isNotEmpty ? result.first : null;
   }
 
-  /// Get all attendance records
   Future<List<Map<String, dynamic>>> getAllAttendance() async {
     final db = await database;
     return await db.query('attendance', orderBy: 'date DESC');
   }
 
-  /// Clear database (debug only)
+  // NEW METHOD: For the Monthly Summary Card
+  Future<int> getMonthlyGraceTotal(String yearMonth) async {
+    final db = await database;
+    // Sums up all grace minutes for a specific month (e.g., '2023-10')
+    final result = await db.rawQuery(
+      "SELECT SUM(used_grace_minutes) as total FROM attendance WHERE date LIKE ?",
+      ['$yearMonth%'],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
   Future<void> clearAll() async {
     final db = await database;
     await db.delete('attendance');

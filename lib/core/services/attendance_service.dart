@@ -4,196 +4,200 @@ import '../../data/database_helper.dart';
 class AttendanceService extends ChangeNotifier {
   final DatabaseHelper _db = DatabaseHelper.instance;
 
-  // ======================
-  // OFFICE RULES
-  // ======================
   static const int officeStartHour = 9;
   static const int officeStartMinute = 30;
-
   static const int officeEndHour = 15;
   static const int officeEndMinute = 30;
-
   static const int halfDayHour = 12;
   static const int halfDayMinute = 0;
 
-  // ======================
-  // INTERNAL STATE
-  // ======================
   DateTime? punchIn;
   DateTime? finalPunchOut;
-
   bool _isPunchedIn = false;
   bool isInside = false;
-
-  String? _dayType; // FULL / HALF
+  String? _dayType;
   int _graceMinutes = 0;
 
-  // ======================
-  // PUBLIC GETTERS
-  // ======================
+  // History State
+  List<Map<String, dynamic>> _history = [];
+  int _monthlyGraceTotal = 0;
+
+  // Getters
   bool get isPunchedIn => _isPunchedIn;
   String? get dayType => _dayType;
   int get graceMinutes => _graceMinutes;
+  List<Map<String, dynamic>> get history => _history;
+  int get monthlyGraceTotal => _monthlyGraceTotal;
 
-  // ======================
-  // AUTO (GEOFENCE)
-  // ======================
-  Future<void> handleGeofenceEnter() async {
-    isInside = true;
-    if (!_isPunchedIn) {
-      await _handlePunch(DateTime.now(), 'auto');
-    }
-  }
-
-  Future<void> handleGeofenceExit() async {
-    isInside = false;
-    if (_isPunchedIn) {
-      await _handlePunch(DateTime.now(), 'auto');
-    }
-  }
-
-  // ======================
-  // LOAD TODAY
-  // ======================
   Future<void> loadTodayAttendance() async {
     final now = DateTime.now();
     final date =
         "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-
     final attendance = await _db.getAttendanceByDate(date);
 
     if (attendance == null) {
-      punchIn = null;
-      finalPunchOut = null;
-      _dayType = null;
-      _graceMinutes = 0;
-      _isPunchedIn = false;
+      _resetLocalState();
     } else {
       punchIn = attendance['punch_in'] != null
           ? DateTime.parse(attendance['punch_in'])
           : null;
-
       finalPunchOut = attendance['punch_out'] != null
           ? DateTime.parse(attendance['punch_out'])
           : null;
-
       _dayType = attendance['attendance_type'];
       _graceMinutes = attendance['used_grace_minutes'] ?? 0;
-      _isPunchedIn = finalPunchOut == null;
+      _isPunchedIn = (attendance['is_active'] == 1);
     }
+    notifyListeners();
+  }
+
+  // NEW: Fetch all history and calculate monthly grace usage
+  Future<void> fetchHistory() async {
+    _history = await _db.getAllAttendance();
+
+    // Calculate Monthly Grace (Current Month)
+    final now = DateTime.now();
+    final monthKey = "${now.year}-${now.month.toString().padLeft(2, '0')}";
+    _monthlyGraceTotal = await _db.getMonthlyGraceTotal(monthKey);
 
     notifyListeners();
   }
 
-  // ======================
-  // MANUAL / AUTO ENTRY
-  // ======================
   Future<void> handlePunch({
     required String punchType,
     DateTime? customDateTime,
   }) async {
     final time = customDateTime ?? DateTime.now();
     await _handlePunch(time, punchType);
+    // Refresh history if a punch happens
+    await fetchHistory();
   }
 
-  // ======================
-  // CORE LOGIC
-  // ======================
   Future<void> _handlePunch(DateTime time, String punchType) async {
     final date =
         "${time.year}-${time.month.toString().padLeft(2, '0')}-${time.day.toString().padLeft(2, '0')}";
     final dateTimeStr = time.toString().substring(0, 19);
-
     final attendance = await _db.getAttendanceByDate(date);
 
-    // ----------------------
-    // PUNCH IN
-    // ----------------------
-    if (attendance == null) {
-      await _db.insertPunchIn(
-        date: date,
-        punchInTime: dateTimeStr,
-        punchType: punchType,
-      );
-
-      punchIn = time;
-      finalPunchOut = null;
-      _dayType = null;
-      _graceMinutes = 0;
+    if (!_isPunchedIn) {
+      if (attendance == null) {
+        await _db.insertPunchIn(
+          date: date,
+          punchInTime: dateTimeStr,
+          punchType: punchType,
+        );
+        punchIn = time;
+      } else {
+        await _db.updateAttendanceStatus(attendance['id'], 1);
+        punchIn = DateTime.parse(attendance['punch_in']);
+      }
       _isPunchedIn = true;
+    } else {
+      final firstIn = DateTime.parse(attendance!['punch_in']);
+      final isHalfDay = _isHalfDay(firstIn, time);
+      int grace = !isHalfDay
+          ? (_lateEntryGrace(firstIn) + _earlyExitGrace(time))
+          : 0;
+      final type = isHalfDay ? 'HALF' : 'FULL';
 
-      notifyListeners();
-      return;
+      await _db.updatePunchOut(
+        attendanceId: attendance['id'],
+        punchOutTime: dateTimeStr,
+        durationMinutes: time.difference(firstIn).inMinutes,
+        usedGraceMinutes: grace,
+        attendanceType: type,
+      );
+      _isPunchedIn = false;
+      punchIn = firstIn;
+      finalPunchOut = time;
+      _dayType = type;
+      _graceMinutes = grace;
     }
-
-    // ----------------------
-    // PUNCH OUT
-    // ----------------------
-    final existingPunchIn = DateTime.parse(attendance['punch_in']);
-    if (time.isBefore(existingPunchIn)) return;
-
-    final durationMinutes = time.difference(existingPunchIn).inMinutes;
-    final isHalfDay = _isHalfDay(existingPunchIn, time);
-
-    int grace = 0;
-    if (!isHalfDay) {
-      grace = _lateEntryGrace(existingPunchIn) + _earlyExitGrace(time);
-    }
-
-    final type = isHalfDay ? 'HALF' : 'FULL';
-
-    await _db.updatePunchOut(
-      attendanceId: attendance['id'],
-      punchOutTime: dateTimeStr,
-      durationMinutes: durationMinutes,
-      usedGraceMinutes: grace,
-      attendanceType: type,
-    );
-
-    punchIn = existingPunchIn;
-    finalPunchOut = time;
-    _dayType = type;
-    _graceMinutes = grace;
-    _isPunchedIn = false;
-
     notifyListeners();
   }
 
-  // ======================
-  // HELPERS
-  // ======================
-  bool _isHalfDay(DateTime punchIn, DateTime punchOut) {
+  Future<void> manualOverridePunch({
+    required DateTime selectedDate,
+    required TimeOfDay inTime,
+    required TimeOfDay outTime,
+  }) async {
+    final dateStr =
+        "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
+    final fullIn = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      inTime.hour,
+      inTime.minute,
+    );
+    final fullOut = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      outTime.hour,
+      outTime.minute,
+    );
+
+    final isHalfDay = _isHalfDay(fullIn, fullOut);
+    int grace = !isHalfDay
+        ? (_lateEntryGrace(fullIn) + _earlyExitGrace(fullOut))
+        : 0;
+    final type = isHalfDay ? 'HALF' : 'FULL';
+
+    await _db.insertManualOverride(
+      date: dateStr,
+      punchIn: fullIn.toString().substring(0, 19),
+      punchOut: fullOut.toString().substring(0, 19),
+      grace: grace,
+      type: type,
+    );
+
+    await fetchHistory(); // Always refresh history after override
+
+    final today = DateTime.now();
+    if (selectedDate.day == today.day && selectedDate.month == today.month) {
+      await loadTodayAttendance();
+    }
+  }
+
+  void _resetLocalState() {
+    punchIn = null;
+    finalPunchOut = null;
+    _dayType = null;
+    _graceMinutes = 0;
+    _isPunchedIn = false;
+  }
+
+  bool _isHalfDay(DateTime inT, DateTime outT) {
     final noon = DateTime(
-      punchIn.year,
-      punchIn.month,
-      punchIn.day,
+      inT.year,
+      inT.month,
+      inT.day,
       halfDayHour,
       halfDayMinute,
     );
-    return punchIn.isAfter(noon) || punchOut.isBefore(noon);
+    return inT.isAfter(noon) || outT.isBefore(noon);
   }
 
-  int _lateEntryGrace(DateTime punchIn) {
-    final officeStart = DateTime(
-      punchIn.year,
-      punchIn.month,
-      punchIn.day,
+  int _lateEntryGrace(DateTime inT) {
+    final s = DateTime(
+      inT.year,
+      inT.month,
+      inT.day,
       officeStartHour,
       officeStartMinute,
     );
-    final minutes = punchIn.difference(officeStart).inMinutes;
-    return minutes > 0 ? minutes : 0;
+    return inT.isAfter(s) ? inT.difference(s).inMinutes : 0;
   }
 
-  int _earlyExitGrace(DateTime punchOut) {
-    final officeEnd = DateTime(
-      punchOut.year,
-      punchOut.month,
-      punchOut.day,
+  int _earlyExitGrace(DateTime outT) {
+    final e = DateTime(
+      outT.year,
+      outT.month,
+      outT.day,
       officeEndHour,
       officeEndMinute,
     );
-    final minutes = officeEnd.difference(punchOut).inMinutes;
-    return minutes > 0 ? minutes : 0;
+    return outT.isBefore(e) ? e.difference(outT).inMinutes : 0;
   }
 }
