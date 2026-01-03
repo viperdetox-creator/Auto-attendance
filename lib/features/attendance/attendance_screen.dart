@@ -41,21 +41,22 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Widget _statusCard(AttendanceService service) {
+    // Use isPunchedIn instead of isInside
+    final bool isInside = service.isPunchedIn;
+
     return Card(
-      color: service.isInside ? Colors.green.shade100 : Colors.red.shade100,
+      color: isInside ? Colors.green.shade100 : Colors.red.shade100,
       child: ListTile(
         leading: Icon(
-          service.isInside ? Icons.location_on : Icons.location_off,
-          color: service.isInside ? Colors.green : Colors.red,
+          isInside ? Icons.location_on : Icons.location_off,
+          color: isInside ? Colors.green : Colors.red,
         ),
         title: Text(
-          service.isInside ? 'Inside College Area' : 'Outside College Area',
+          isInside ? 'Inside College Area' : 'Outside College Area',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          service.isInside
-              ? 'Auto attendance active'
-              : 'Auto attendance inactive',
+          isInside ? 'Auto attendance active' : 'Auto attendance inactive',
         ),
       ),
     );
@@ -116,10 +117,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Widget _graceProgressCard(AttendanceService service) {
     const int totalGrace = 250;
-    final int graceLeft = (totalGrace - service.graceMinutes).clamp(
-      0,
-      totalGrace,
-    );
+    // FIX: Use monthlyGraceTotal instead of graceMinutes
+    final int monthlyGraceUsed = service.monthlyGraceTotal;
+    final int graceLeft = (totalGrace - monthlyGraceUsed).clamp(0, totalGrace);
     final double progress = (graceLeft / totalGrace).clamp(0.0, 1.0);
 
     Color color = graceLeft < 50
@@ -137,21 +137,28 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               'Monthly Grace Balance',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 8),
+            Text(
+              'Used: $monthlyGraceUsed / $totalGrace minutes',
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 20),
             Center(
               child: SizedBox(
-                width: 180, // Larger size for the circle
+                width: 180,
                 height: 180,
                 child: Stack(
-                  fit: StackFit
-                      .expand, // Ensures the indicator fills the SizedBox
+                  fit: StackFit.expand,
                   children: [
                     CircularProgressIndicator(
                       value: progress,
-                      strokeWidth: 14, // Thicker stroke
+                      strokeWidth: 14,
                       color: color,
                       backgroundColor: Colors.grey.shade200,
-                      strokeCap: StrokeCap.round, // Modern rounded edges
+                      strokeCap: StrokeCap.round,
                     ),
                     Center(
                       child: Column(
@@ -164,8 +171,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                           Text(
                             '$graceLeft min',
                             style: TextStyle(
-                              fontSize: 28, // Larger text inside
+                              fontSize: 28,
                               fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${(progress * 100).toStringAsFixed(1)}%',
+                            style: TextStyle(
+                              fontSize: 12,
                               color: color,
                             ),
                           ),
@@ -175,6 +190,28 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ],
                 ),
               ),
+            ),
+            const SizedBox(height: 16),
+            LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: Colors.grey.shade200,
+              color: color,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '0 min',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+                Text(
+                  '$totalGrace min',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
             ),
           ],
         ),

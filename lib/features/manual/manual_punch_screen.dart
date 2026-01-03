@@ -42,12 +42,13 @@ class _ManualPunchScreenState extends State<ManualPunchScreen> {
   }
 
   Widget _header(String t) => Padding(
-    padding: const EdgeInsets.only(bottom: 8, left: 4),
-    child: Text(
-      t,
-      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
-    ),
-  );
+        padding: const EdgeInsets.only(bottom: 8, left: 4),
+        child: Text(
+          t,
+          style: const TextStyle(
+              fontWeight: FontWeight.bold, color: Colors.indigo),
+        ),
+      );
 
   Widget _liveCard(AttendanceService service) {
     bool isIn = service.isPunchedIn;
@@ -118,12 +119,12 @@ class _ManualPunchScreenState extends State<ManualPunchScreen> {
   }
 
   Widget _tile(String t, String s, IconData i, VoidCallback onTap) => ListTile(
-    leading: Icon(i, color: Colors.indigo),
-    title: Text(t),
-    subtitle: Text(s, style: const TextStyle(fontWeight: FontWeight.bold)),
-    trailing: const Icon(Icons.edit, size: 20),
-    onTap: onTap,
-  );
+        leading: Icon(i, color: Colors.indigo),
+        title: Text(t),
+        subtitle: Text(s, style: const TextStyle(fontWeight: FontWeight.bold)),
+        trailing: const Icon(Icons.edit, size: 20),
+        onTap: onTap,
+      );
 
   void _confirm(AttendanceService service) {
     showDialog(

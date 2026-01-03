@@ -19,6 +19,12 @@ dependencies:
   cloud_firestore: ^6.1.1
 
   # ===============================
+  # SYNC & DEVICE INFO
+  # ===============================
+  device_info_plus: ^10.0.0  # NEW: For device ID in sync
+  connectivity_plus: ^5.0.2  # NEW: Check internet connection
+
+  # ===============================
   # LOCATION & PERMISSIONS
   # ===============================
   geolocator: ^10.1.0
@@ -34,6 +40,11 @@ dependencies:
   # ===============================
   sqflite: ^2.3.0
   path: ^1.9.0
+
+  # ===============================
+  # DATE & TIME FORMATTING
+  # ===============================
+  intl: ^0.19.0  # NEW: For date formatting in sync display
 
   # ===============================
   # PDF & EXPORT (UPDATED)

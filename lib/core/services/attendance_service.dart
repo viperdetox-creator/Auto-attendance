@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../data/database_helper.dart';
 
 class AttendanceService extends ChangeNotifier {
@@ -26,6 +27,23 @@ class AttendanceService extends ChangeNotifier {
   int get graceMinutes => _graceMinutes;
   List<Map<String, dynamic>> get history => _history;
   int get monthlyGraceTotal => _monthlyGraceTotal;
+
+  // --- NEW: INITIALIZATION METHOD CALLED BY LOGIN ---
+  Future<void> initializeUser() async {
+    try {
+      // 1. Load today's status (Is user currently punched in?)
+      await loadTodayAttendance();
+
+      // 2. Load history and monthly totals for the dashboard
+      await fetchHistory();
+
+      debugPrint("AttendanceService: Data successfully initialized.");
+      notifyListeners();
+    } catch (e) {
+      debugPrint("AttendanceService Init Error: $e");
+      rethrow;
+    }
+  }
 
   Future<void> loadTodayAttendance() async {
     final now = DateTime.now();
@@ -57,10 +75,8 @@ class AttendanceService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> handlePunch({
-    required String punchType,
-    DateTime? customDateTime,
-  }) async {
+  Future<void> handlePunch(
+      {required String punchType, DateTime? customDateTime}) async {
     final time = customDateTime ?? DateTime.now();
     await _handlePunch(time, punchType);
     await fetchHistory();
@@ -75,10 +91,7 @@ class AttendanceService extends ChangeNotifier {
     if (!_isPunchedIn) {
       if (attendance == null) {
         await _db.insertPunchIn(
-          date: date,
-          punchInTime: dateTimeStr,
-          punchType: punchType,
-        );
+            date: date, punchInTime: dateTimeStr, punchType: punchType);
         punchIn = time;
       } else {
         await _db.updateAttendanceStatus(attendance['id'], 1);
@@ -87,18 +100,10 @@ class AttendanceService extends ChangeNotifier {
       _isPunchedIn = true;
     } else {
       final firstIn = DateTime.parse(attendance!['punch_in']);
-
-      // LOGIC FIX START
       final isHalfDay = _isHalfDay(firstIn, time);
-      int grace = 0;
-
-      if (!isHalfDay) {
-        // Only calculate grace if it's a FULL day
-        grace = _lateEntryGrace(firstIn) + _earlyExitGrace(time);
-      }
-
+      int grace =
+          isHalfDay ? 0 : (_lateEntryGrace(firstIn) + _earlyExitGrace(time));
       final type = isHalfDay ? 'HALF' : 'FULL';
-      // LOGIC FIX END
 
       await _db.updatePunchOut(
         attendanceId: attendance['id'],
@@ -116,38 +121,21 @@ class AttendanceService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> manualOverridePunch({
-    required DateTime selectedDate,
-    required TimeOfDay inTime,
-    required TimeOfDay outTime,
-  }) async {
+  Future<void> manualOverridePunch(
+      {required DateTime selectedDate,
+      required TimeOfDay inTime,
+      required TimeOfDay outTime}) async {
     final dateStr =
         "${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}";
-    final fullIn = DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-      inTime.hour,
-      inTime.minute,
-    );
-    final fullOut = DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-      outTime.hour,
-      outTime.minute,
-    );
+    final fullIn = DateTime(selectedDate.year, selectedDate.month,
+        selectedDate.day, inTime.hour, inTime.minute);
+    final fullOut = DateTime(selectedDate.year, selectedDate.month,
+        selectedDate.day, outTime.hour, outTime.minute);
 
-    // LOGIC FIX START
     final isHalfDay = _isHalfDay(fullIn, fullOut);
-    int grace = 0;
-
-    if (!isHalfDay) {
-      grace = _lateEntryGrace(fullIn) + _earlyExitGrace(fullOut);
-    }
-
+    int grace =
+        isHalfDay ? 0 : (_lateEntryGrace(fullIn) + _earlyExitGrace(fullOut));
     final type = isHalfDay ? 'HALF' : 'FULL';
-    // LOGIC FIX END
 
     await _db.insertManualOverride(
       date: dateStr,
@@ -172,32 +160,18 @@ class AttendanceService extends ChangeNotifier {
     _isPunchedIn = false;
   }
 
-  // UPDATED HALF DAY LOGIC: Based on working hours
-  bool _isHalfDay(DateTime inT, DateTime outT) {
-    final durationMinutes = outT.difference(inT).inMinutes;
-    // If worked less than 5 hours (300 minutes), it's a Half Day
-    return durationMinutes < 300;
-  }
+  bool _isHalfDay(DateTime inT, DateTime outT) =>
+      outT.difference(inT).inMinutes < 300;
 
   int _lateEntryGrace(DateTime inT) {
     final s = DateTime(
-      inT.year,
-      inT.month,
-      inT.day,
-      officeStartHour,
-      officeStartMinute,
-    );
+        inT.year, inT.month, inT.day, officeStartHour, officeStartMinute);
     return inT.isAfter(s) ? inT.difference(s).inMinutes : 0;
   }
 
   int _earlyExitGrace(DateTime outT) {
     final e = DateTime(
-      outT.year,
-      outT.month,
-      outT.day,
-      officeEndHour,
-      officeEndMinute,
-    );
+        outT.year, outT.month, outT.day, officeEndHour, officeEndMinute);
     return outT.isBefore(e) ? e.difference(outT).inMinutes : 0;
   }
 }
