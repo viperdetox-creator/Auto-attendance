@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "859293807314",
+    "project_id": "auto-attendance-624d7",
+    "storage_bucket": "auto-attendance-624d7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:859293807314:android:346d3ab5415259645df30b",
+        "android_client_info": {
+          "package_name": "com.example.auto_attendance"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCm57xgXyvRLHTwY5cfDwp_DrwhljUKCno"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
