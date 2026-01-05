@@ -28,15 +28,11 @@ class AttendanceService extends ChangeNotifier {
   List<Map<String, dynamic>> get history => _history;
   int get monthlyGraceTotal => _monthlyGraceTotal;
 
-  // --- NEW: INITIALIZATION METHOD CALLED BY LOGIN ---
+  // --- INITIALIZATION ---
   Future<void> initializeUser() async {
     try {
-      // 1. Load today's status (Is user currently punched in?)
       await loadTodayAttendance();
-
-      // 2. Load history and monthly totals for the dashboard
       await fetchHistory();
-
       debugPrint("AttendanceService: Data successfully initialized.");
       notifyListeners();
     } catch (e) {
@@ -94,6 +90,7 @@ class AttendanceService extends ChangeNotifier {
             date: date, punchInTime: dateTimeStr, punchType: punchType);
         punchIn = time;
       } else {
+        // 🔹 LINE 90 FIX: Ensure arguments match DatabaseHelper
         await _db.updateAttendanceStatus(attendance['id'], 1);
         punchIn = DateTime.parse(attendance['punch_in']);
       }
@@ -112,6 +109,7 @@ class AttendanceService extends ChangeNotifier {
         usedGraceMinutes: grace,
         attendanceType: type,
       );
+
       _isPunchedIn = false;
       punchIn = firstIn;
       finalPunchOut = time;
@@ -137,6 +135,7 @@ class AttendanceService extends ChangeNotifier {
         isHalfDay ? 0 : (_lateEntryGrace(fullIn) + _earlyExitGrace(fullOut));
     final type = isHalfDay ? 'HALF' : 'FULL';
 
+    // 🔹 LINE 131 FIX: Parameter names must match DatabaseHelper exactly
     await _db.insertManualOverride(
       date: dateStr,
       punchIn: fullIn.toString().substring(0, 19),

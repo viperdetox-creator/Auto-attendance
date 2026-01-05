@@ -1,5 +1,5 @@
 name: attendance_app
-description: "Offline Flutter Geofencing Attendance App with Firebase Auth"
+description: "Offline Flutter Geofencing Attendance App with Background Tracking"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -14,50 +14,57 @@ dependencies:
   # ===============================
   # FIREBASE
   # ===============================
-  firebase_core: ^4.3.0
-  firebase_auth: ^6.1.3
-  cloud_firestore: ^6.1.1
+  firebase_core: ^3.0.0
+  firebase_auth: ^5.0.0
+  cloud_firestore: ^5.0.0
+
+  # ===============================
+  # BACKGROUND & AUTOMATION
+  # ===============================
+  flutter_background_service: ^5.1.0 
+  
+  # ===============================
+  # LOCATION & PERMISSIONS
+  # ===============================
+  geolocator: ^13.0.1
+  permission_handler: ^11.0.1
 
   # ===============================
   # SYNC & DEVICE INFO
   # ===============================
-  device_info_plus: ^10.0.0  # NEW: For device ID in sync
-  connectivity_plus: ^5.0.2  # NEW: Check internet connection
-
-  # ===============================
-  # LOCATION & PERMISSIONS
-  # ===============================
-  geolocator: ^10.1.0
-  permission_handler: ^11.0.1
+  device_info_plus: ^10.1.0
+  connectivity_plus: ^6.0.0
 
   # ===============================
   # STATE MANAGEMENT
   # ===============================
-  provider: ^6.0.5
+  provider: ^6.1.2
 
   # ===============================
-  # LOCAL DATABASE (OFFLINE)
+  # LOCAL DATABASE & STORAGE
   # ===============================
-  sqflite: ^2.3.0
+  sqflite: ^2.3.3+1
   path: ^1.9.0
+  shared_preferences: ^2.2.2 # Added for local profile storage
 
   # ===============================
   # DATE & TIME FORMATTING
   # ===============================
-  intl: ^0.19.0  # NEW: For date formatting in sync display
+  intl: ^0.19.0
 
   # ===============================
-  # PDF & EXPORT (UPDATED)
+  # PDF & EXPORT
   # ===============================
-  pdf: ^3.11.3
-  printing: ^5.14.2
-  path_provider: ^2.1.2
+  pdf: ^3.11.0
+  printing: ^5.13.0
+  path_provider: ^2.1.3
   share_plus: ^10.1.0
 
   # ===============================
-  # UI ICONS
+  # UI & OTP
   # ===============================
   cupertino_icons: ^1.0.8
+  pinput: ^6.0.1
 
 dev_dependencies:
   flutter_test:
