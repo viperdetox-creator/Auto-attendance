@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/attendance_service.dart';
@@ -5,78 +6,100 @@ import '../../data/database_helper.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
-
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
-  // Calendar state
+class _HistoryScreenState extends State<HistoryScreen>
+    with TickerProviderStateMixin {
   DateTime _focusedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   Map<String, Map<String, dynamic>> _monthRecords = {};
   bool _calendarLoading = true;
 
-  // ── Colors ──────────────────────────────────
-  static const _presentBg = Color(0xFFD4F0E0);
-  static const _presentFg = Color(0xFF2D7A4F);
-  static const _absentBg = Color(0xFFFDE8E6);
-  static const _absentFg = Color(0xFFC0392B);
-  static const _sundayBg = Color(0xFFF0F0F0);
-  static const _sundayFg = Color(0xFF9B9B9B);
-  static const _todayRing = Color(0xFFF4A228);
+  late AnimationController _entryCtrl;
+  late AnimationController _orbCtrl;
+  late AnimationController _graceCtrl;
+  late Animation<double> _graceAnim;
+
+  // ── Palette ──────────────────────────────────
+  static const _bg = Color(0xFF0A0E1A);
+  static const _surface = Color(0xFF131929);
+  static const _card = Color(0xFF1C2333);
+  static const _teal = Color(0xFF00D4B8);
+  static const _amber = Color(0xFFFFB347);
+  static const _rose = Color(0xFFFF6B8A);
+  static const _indigo = Color(0xFF6C7FE8);
+  static const _textPri = Color(0xFFEEF2FF);
+  static const _textSec = Color(0xFF7A8BAA);
+
+  // Calendar colors
+  static const _presentBg = Color(0xFF0D2E2A);
+  static const _presentFg = Color(0xFF00D4B8);
+  static const _absentBg = Color(0xFF2E0D13);
+  static const _absentFg = Color(0xFFFF6B8A);
+  static const _halfBg = Color(0xFF2E2200);
+  static const _halfFg = Color(0xFFFFB347);
+  static const _sundayBg = Color(0xFF161C2A);
+  static const _sundayFg = Color(0xFF4A5568);
+  static const _leaveBg = Color(0xFF1A1E2E);
+  static const _leaveFg = Color(0xFF6C7FE8);
 
   @override
   void initState() {
     super.initState();
+    _entryCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 900));
+    _orbCtrl =
+        AnimationController(vsync: this, duration: const Duration(seconds: 10))
+          ..repeat();
+    _graceCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1200));
+    _graceAnim =
+        CurvedAnimation(parent: _graceCtrl, curve: Curves.easeOutCubic);
+
+    _entryCtrl.forward();
     _loadMonthData();
   }
 
-  // ── Load attendance records for focused month from SQLite ──
+  @override
+  void dispose() {
+    _entryCtrl.dispose();
+    _orbCtrl.dispose();
+    _graceCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadMonthData() async {
     setState(() => _calendarLoading = true);
     final all = await DatabaseHelper.instance.getAllAttendance();
-    final yearMonth =
-        '${_focusedMonth.year}-${_focusedMonth.month.toString().padLeft(2, '0')}';
-
+    final ym = '${_focusedMonth.year}-'
+        '${_focusedMonth.month.toString().padLeft(2, '0')}';
     final Map<String, Map<String, dynamic>> filtered = {};
-    for (final record in all) {
-      final date = record['date'] as String? ?? '';
-      if (date.startsWith(yearMonth)) {
-        // key = "YYYY-MM-DD"
-        filtered[date.substring(0, 10)] = record;
-      }
+    for (final r in all) {
+      final d = r['date'] as String? ?? '';
+      if (d.startsWith(ym)) filtered[d.substring(0, 10)] = r;
     }
     setState(() {
       _monthRecords = filtered;
       _calendarLoading = false;
     });
-  }
-
-  void _prevMonth() {
-    setState(() =>
-        _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month - 1));
-    _loadMonthData();
-  }
-
-  void _nextMonth() {
-    setState(() =>
-        _focusedMonth = DateTime(_focusedMonth.year, _focusedMonth.month + 1));
-    _loadMonthData();
+    _graceCtrl.forward(from: 0);
   }
 
   String _dateKey(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
-  // ── Determine cell status from DB record ──
   String _statusFor(DateTime date) {
     final today = DateTime.now();
     if (date.isAfter(today) && date.day != today.day) return 'future';
-    final record = _monthRecords[_dateKey(date)];
-    if (record == null) return 'absent';
-    final type = (record['attendance_type'] as String? ?? '').toUpperCase();
-    if (type == 'LEAVE') return 'leave';
-    if (type == 'HALF' || type == 'HALF DAY') return 'half';
-    return 'present'; // Full Day or any punch_in record
+    final r = _monthRecords[_dateKey(date)];
+    if (r == null) return 'absent';
+    final t = (r['attendance_type'] as String? ?? '').toUpperCase();
+    if (t == 'LEAVE') return 'leave';
+    if (t == 'HALF' || t == 'HALF DAY') return 'half';
+    if (t == 'ABSENT') return 'absent';
+    return 'present';
   }
 
   @override
@@ -86,81 +109,226 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Attendance History'),
-        centerTitle: true,
-        backgroundColor: Colors.indigo,
-        foregroundColor: Colors.white,
-      ),
-      body: Consumer<AttendanceService>(
-        builder: (context, service, child) {
-          return SingleChildScrollView(
-            child: Column(
-              children: [
-                _buildMonthlyGraceCard(service),
-                const SizedBox(height: 12),
-
-                // ── CALENDAR ──────────────────────────
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Card(
-                    elevation: 3,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          _buildCalendarHeader(),
-                          const SizedBox(height: 10),
-                          _buildDayLabels(),
-                          const SizedBox(height: 4),
-                          _calendarLoading
-                              ? const SizedBox(
-                                  height: 180,
-                                  child: Center(
-                                      child: CircularProgressIndicator()))
-                              : _buildGrid(),
-                          const Divider(height: 24),
-                          _buildLegend(),
-                          const SizedBox(height: 4),
-                          _buildStats(),
-                        ],
-                      ),
-                    ),
+      backgroundColor: _bg,
+      body: Stack(
+        children: [
+          _buildOrbBg(),
+          SafeArea(
+            child: Consumer<AttendanceService>(
+              builder: (context, service, _) {
+                return SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _fade(0.0, 0.3, _buildPageTitle()),
+                      const SizedBox(height: 20),
+                      _fade(0.1, 0.45, _buildGraceCard(service)),
+                      const SizedBox(height: 20),
+                      _fade(0.2, 0.6, _buildCalendarCard()),
+                      const SizedBox(height: 20),
+                      _fade(0.3, 0.75, _buildLogsSection(service)),
+                    ],
                   ),
-                ),
-
-                const SizedBox(height: 12),
-
-                // ── HISTORY LIST ──────────────────────
-                const Padding(
-                  padding:
-                      EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "Recent Logs",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
-                  ),
-                ),
-                service.history.isEmpty
-                    ? _buildEmptyState()
-                    : _buildHistoryList(service),
-
-                const SizedBox(height: 20),
-              ],
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
 
-  // ── Calendar Header (Month nav) ───────────────
-  Widget _buildCalendarHeader() {
+  Widget _buildOrbBg() {
+    return AnimatedBuilder(
+      animation: _orbCtrl,
+      builder: (_, __) {
+        final t = _orbCtrl.value * 2 * math.pi;
+        return Stack(children: [
+          Positioned(
+              top: -80 + math.sin(t) * 25,
+              right: -60,
+              child: _orb(220, _teal.withOpacity(0.06))),
+          Positioned(
+              bottom: 200 + math.cos(t) * 30,
+              left: -80,
+              child: _orb(200, _indigo.withOpacity(0.07))),
+        ]);
+      },
+    );
+  }
+
+  Widget _orb(double size, Color color) => Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: [color, Colors.transparent])));
+
+  Widget _fade(double start, double end, Widget child) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(
+          parent: _entryCtrl,
+          curve: Interval(start, end, curve: Curves.easeOut))),
+      child: child,
+    );
+  }
+
+  Widget _buildPageTitle() {
+    return const Text('History',
+        style: TextStyle(
+            color: _textPri,
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.5));
+  }
+
+  // ── Grace card ────────────────────────────────
+  Widget _buildGraceCard(AttendanceService service) {
+    const limit = 250;
+    final used = service.monthlyGraceTotal;
+    final progress = (used / limit).clamp(0.0, 1.0);
+    final Color barColor = used > 200 ? _rose : _teal;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            const Color(0xFF0D2E2A),
+            const Color(0xFF0A1A2E),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _teal.withOpacity(0.2), width: 1),
+        boxShadow: [
+          BoxShadow(
+              color: _teal.withOpacity(0.08), blurRadius: 24, spreadRadius: 2),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Monthly Grace',
+                      style: TextStyle(
+                          color: _textSec,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 4),
+                  RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                            text: '$used',
+                            style: TextStyle(
+                                color: barColor,
+                                fontSize: 26,
+                                fontWeight: FontWeight.w800)),
+                        TextSpan(
+                            text: ' / $limit',
+                            style: const TextStyle(
+                                color: _textSec,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500)),
+                        const TextSpan(
+                            text: ' min',
+                            style: TextStyle(color: _textSec, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              // Circular mini progress
+              SizedBox(
+                width: 56,
+                height: 56,
+                child: AnimatedBuilder(
+                  animation: _graceAnim,
+                  builder: (_, __) => CustomPaint(
+                    painter: _ArcPainter(
+                        progress: progress * _graceAnim.value, color: barColor),
+                    child: Center(
+                      child: Text('${(progress * 100).toInt()}%',
+                          style: TextStyle(
+                              color: barColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: AnimatedBuilder(
+              animation: _graceAnim,
+              builder: (_, __) => LinearProgressIndicator(
+                value: progress * _graceAnim.value,
+                backgroundColor: Colors.white.withOpacity(0.08),
+                valueColor: AlwaysStoppedAnimation(barColor),
+                minHeight: 8,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('${limit - used} mins remaining',
+              style: const TextStyle(color: _textSec, fontSize: 11)),
+        ],
+      ),
+    );
+  }
+
+  // ── Calendar card ─────────────────────────────
+  Widget _buildCalendarCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.07), width: 1),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 20,
+              offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        children: [
+          _buildCalHeader(),
+          const SizedBox(height: 12),
+          _buildDayLabels(),
+          const SizedBox(height: 6),
+          _calendarLoading
+              ? SizedBox(
+                  height: 160,
+                  child: Center(
+                    child:
+                        CircularProgressIndicator(color: _teal, strokeWidth: 2),
+                  ),
+                )
+              : _buildGrid(),
+          Divider(height: 24, color: Colors.white.withOpacity(0.06)),
+          _buildLegend(),
+          const SizedBox(height: 12),
+          _buildStats(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalHeader() {
     const months = [
       'January',
       'February',
@@ -178,60 +346,63 @@ class _HistoryScreenState extends State<HistoryScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        IconButton(
-          icon: const Icon(Icons.chevron_left),
-          onPressed: _prevMonth,
-          splashRadius: 20,
-        ),
-        Text(
-          '${months[_focusedMonth.month - 1]} ${_focusedMonth.year}',
-          style: const TextStyle(
-              fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: 0.3),
-        ),
-        IconButton(
-          icon: const Icon(Icons.chevron_right),
-          onPressed: _nextMonth,
-          splashRadius: 20,
-        ),
+        _navBtn(Icons.chevron_left_rounded, () {
+          setState(() => _focusedMonth =
+              DateTime(_focusedMonth.year, _focusedMonth.month - 1));
+          _loadMonthData();
+        }),
+        Text('${months[_focusedMonth.month - 1]} ${_focusedMonth.year}',
+            style: const TextStyle(
+                color: _textPri, fontSize: 15, fontWeight: FontWeight.w700)),
+        _navBtn(Icons.chevron_right_rounded, () {
+          setState(() => _focusedMonth =
+              DateTime(_focusedMonth.year, _focusedMonth.month + 1));
+          _loadMonthData();
+        }),
       ],
     );
   }
 
-  // ── Sun Mon Tue … Sat labels ──────────────────
+  Widget _navBtn(IconData icon, VoidCallback onTap) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+              color: _teal.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, color: _teal, size: 18),
+        ),
+      );
+
   Widget _buildDayLabels() {
-    const labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
     return Row(
       children: labels
-          .map((l) => Expanded(
+          .asMap()
+          .entries
+          .map((e) => Expanded(
                 child: Center(
-                  child: Text(l,
+                  child: Text(e.value,
                       style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.4,
-                        color: l == 'Sun' ? _sundayFg : Colors.grey.shade500,
-                      )),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: e.key == 0 ? _sundayFg : _textSec)),
                 ),
               ))
           .toList(),
     );
   }
 
-  // ── Calendar grid ─────────────────────────────
   Widget _buildGrid() {
     final today = DateTime.now();
     final daysInMonth =
         DateUtils.getDaysInMonth(_focusedMonth.year, _focusedMonth.month);
-    // Flutter weekday: Mon=1…Sun=7 → convert to Sun=0 offset
     final firstWeekday =
         DateTime(_focusedMonth.year, _focusedMonth.month, 1).weekday % 7;
-
     final cells = <Widget>[];
 
-    // Empty leading cells
-    for (int i = 0; i < firstWeekday; i++) {
-      cells.add(const SizedBox());
-    }
+    for (int i = 0; i < firstWeekday; i++) cells.add(const SizedBox());
 
     for (int d = 1; d <= daysInMonth; d++) {
       final date = DateTime(_focusedMonth.year, _focusedMonth.month, d);
@@ -240,16 +411,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final status = isSunday ? 'sunday' : _statusFor(date);
 
       Color bg, fg;
-      IconData? icon;
-
       switch (status) {
         case 'present':
           bg = _presentBg;
           fg = _presentFg;
           break;
         case 'half':
-          bg = const Color(0xFFFFF3CD);
-          fg = const Color(0xFFB8860B);
+          bg = _halfBg;
+          fg = _halfFg;
           break;
         case 'absent':
           bg = _absentBg;
@@ -260,40 +429,37 @@ class _HistoryScreenState extends State<HistoryScreen> {
           fg = _sundayFg;
           break;
         case 'leave':
-          bg = const Color(0xFFECEFF1);
-          fg = Colors.blueGrey;
+          bg = _leaveBg;
+          fg = _leaveFg;
           break;
-        default: // future
-          bg = Colors.white;
-          fg = Colors.grey.shade300;
+        default:
+          bg = _surface;
+          fg = _textSec.withOpacity(0.3);
       }
 
       cells.add(AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 250),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(10),
-          border: isToday
-              ? Border.all(color: _todayRing, width: 2.5)
-              : status == 'future'
-                  ? Border.all(color: Colors.grey.shade200, width: 1)
-                  : null,
+          border: isToday ? Border.all(color: _amber, width: 2) : null,
+          boxShadow: status == 'present'
+              ? [BoxShadow(color: _teal.withOpacity(0.15), blurRadius: 6)]
+              : null,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('$d',
                 style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
-            if (status == 'present' ||
-                status == 'absent' ||
-                status == 'half' ||
-                status == 'leave')
+                    fontSize: 12, fontWeight: FontWeight.w700, color: fg)),
+            if (['present', 'absent', 'half', 'leave'].contains(status))
               Container(
                 width: 4,
                 height: 4,
                 margin: const EdgeInsets.only(top: 2),
-                decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                    color: fg.withOpacity(0.7), shape: BoxShape.circle),
               ),
           ],
         ),
@@ -304,58 +470,52 @@ class _HistoryScreenState extends State<HistoryScreen> {
       crossAxisCount: 7,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 6,
-      crossAxisSpacing: 6,
+      mainAxisSpacing: 5,
+      crossAxisSpacing: 5,
       children: cells,
     );
   }
 
-  // ── Legend ────────────────────────────────────
   Widget _buildLegend() {
     return Wrap(
-      spacing: 12,
+      spacing: 10,
       runSpacing: 6,
       alignment: WrapAlignment.center,
       children: [
-        _legendDot(_presentBg, _presentFg, 'Present'),
-        _legendDot(_absentBg, _absentFg, 'Absent'),
-        _legendDot(
-            const Color(0xFFFFF3CD), const Color(0xFFB8860B), 'Half Day'),
-        _legendDot(_sundayBg, _sundayFg, 'Sunday'),
-        _legendDot(const Color(0xFFECEFF1), Colors.blueGrey, 'Leave'),
+        _dot(_presentBg, _presentFg, 'Present'),
+        _dot(_absentBg, _absentFg, 'Absent'),
+        _dot(_halfBg, _halfFg, 'Half'),
+        _dot(_sundayBg, _sundayFg, 'Sunday'),
+        _dot(_leaveBg, _leaveFg, 'Leave'),
       ],
     );
   }
 
-  Widget _legendDot(Color bg, Color fg, String label) {
+  Widget _dot(Color bg, Color fg, String label) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
       Container(
-        width: 12,
-        height: 12,
+        width: 10,
+        height: 10,
         decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(3),
-            border: Border.all(color: fg.withOpacity(0.4))),
+            border: Border.all(color: fg.withOpacity(0.5))),
       ),
       const SizedBox(width: 4),
-      Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+      Text(label, style: const TextStyle(color: _textSec, fontSize: 10)),
     ]);
   }
 
-  // ── Stats row ─────────────────────────────────
   Widget _buildStats() {
     final today = DateTime.now();
     final daysInMonth =
         DateUtils.getDaysInMonth(_focusedMonth.year, _focusedMonth.month);
-    int present = 0, half = 0, absent = 0, sundays = 0;
+    int present = 0, half = 0, absent = 0;
 
     for (int d = 1; d <= daysInMonth; d++) {
       final date = DateTime(_focusedMonth.year, _focusedMonth.month, d);
       if (date.isAfter(today)) continue;
-      if (date.weekday == DateTime.sunday) {
-        sundays++;
-        continue;
-      }
+      if (date.weekday == DateTime.sunday) continue;
       final s = _statusFor(date);
       if (s == 'present')
         present++;
@@ -365,163 +525,215 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
 
     final total = present + half + absent;
-    final pct =
-        total > 0 ? ((present + half * 0.5) / total * 100).round() : null;
+    final pct = total > 0 ? ((present + half * 0.5) / total * 100).round() : 0;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        _statChip('Present', present, _presentFg, _presentBg),
-        _statChip('Absent', absent, _absentFg, _absentBg),
-        _statChip(
-            'Half', half, const Color(0xFFB8860B), const Color(0xFFFFF3CD)),
-        if (pct != null)
-          Column(children: [
-            Text('$pct%',
-                style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: _presentFg)),
-            Text('attendance',
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
-          ]),
+        _statPill('$present', 'Present', _presentFg, _presentBg),
+        _statPill('$absent', 'Absent', _absentFg, _absentBg),
+        _statPill('$half', 'Half', _halfFg, _halfBg),
+        Column(children: [
+          Text('$pct%',
+              style: const TextStyle(
+                  color: _teal, fontSize: 20, fontWeight: FontWeight.w800)),
+          const Text('attendance',
+              style: TextStyle(color: _textSec, fontSize: 10)),
+        ]),
       ],
     );
   }
 
-  Widget _statChip(String label, int count, Color fg, Color bg) {
+  Widget _statPill(String count, String label, Color fg, Color bg) {
     return Column(children: [
       Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
         decoration:
             BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-        child: Text('$count',
+        child: Text(count,
             style: TextStyle(
-                fontWeight: FontWeight.w700, fontSize: 15, color: fg)),
+                color: fg, fontWeight: FontWeight.w800, fontSize: 14)),
       ),
       const SizedBox(height: 4),
-      Text(label, style: TextStyle(fontSize: 10, color: Colors.grey.shade500)),
+      Text(label, style: const TextStyle(color: _textSec, fontSize: 10)),
     ]);
   }
 
-  // ── Existing widgets (unchanged) ──────────────
-
-  Widget _buildMonthlyGraceCard(AttendanceService service) {
-    const int limit = 250;
-    int used = service.monthlyGraceTotal;
-    double progress = (used / limit).clamp(0.0, 1.0);
-    Color progressColor = used > 200 ? Colors.red : Colors.orange;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: const BoxDecoration(
-        color: Colors.indigo,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
+  // ── Logs section ──────────────────────────────
+  Widget _buildLogsSection(AttendanceService service) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                  color: _indigo.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8)),
+              child:
+                  const Icon(Icons.history_rounded, color: _indigo, size: 16),
+            ),
+            const SizedBox(width: 10),
+            const Text('Recent Logs',
+                style: TextStyle(
+                    color: _textPri,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700)),
+          ],
         ),
-      ),
-      child: Card(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Monthly Grace Usage",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text("$used / $limit mins used",
-                      style: TextStyle(
-                          color: progressColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13)),
-                  Text("${(progress * 100).toInt()}%"),
-                ],
-              ),
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: progress,
-                backgroundColor: Colors.grey.shade200,
-                color: progressColor,
-                minHeight: 8,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ],
-          ),
-        ),
-      ),
+        const SizedBox(height: 12),
+        service.history.isEmpty ? _emptyState() : _buildLogList(service),
+      ],
     );
   }
 
-  Widget _buildHistoryList(AttendanceService service) {
+  Widget _buildLogList(AttendanceService service) {
     return ListView.builder(
       itemCount: service.history.length,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      itemBuilder: (context, index) {
-        final record = service.history[index];
-        final isHalfDay = record['attendance_type'] == 'HALF';
-        final grace = record['used_grace_minutes'] ?? 0;
+      itemBuilder: (ctx, i) {
+        final r = service.history[i];
+        final type = r['attendance_type'] as String? ?? 'FULL';
+        final grace = r['used_grace_minutes'] ?? 0;
+        final Color c = type == 'LEAVE'
+            ? _leaveFg
+            : type == 'ABSENT'
+                ? _absentFg
+                : type == 'HALF'
+                    ? _halfFg
+                    : _presentFg;
+        final IconData ic = type == 'LEAVE'
+            ? Icons.event_busy_rounded
+            : type == 'ABSENT'
+                ? Icons.cancel_rounded
+                : type == 'HALF'
+                    ? Icons.hourglass_bottom_rounded
+                    : Icons.check_circle_rounded;
 
-        return Card(
+        return Container(
           margin: const EdgeInsets.only(bottom: 10),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          child: ListTile(
-            leading: Icon(
-              isHalfDay ? Icons.hourglass_bottom_rounded : Icons.check_circle,
-              color: isHalfDay ? Colors.orange : Colors.green,
-            ),
-            title: Text(record['date'],
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(
-              "In: ${record['punch_in']?.substring(11, 16) ?? '--:--'} | "
-              "Out: ${record['punch_out']?.substring(11, 16) ?? '--:--'}",
-            ),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  record['attendance_type'] ?? 'FULL',
-                  style: TextStyle(
-                    color: isHalfDay ? Colors.orange : Colors.green,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: _card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: c.withOpacity(0.15), width: 1),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2)),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                    color: c.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12)),
+                child: Icon(ic, color: c, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(r['date'],
+                        style: const TextStyle(
+                            color: _textPri,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13)),
+                    const SizedBox(height: 3),
+                    Text(
+                      'In: ${r['punch_in']?.substring(11, 16) ?? '--:--'}'
+                      '  •  Out: ${r['punch_out']?.substring(11, 16) ?? '--:--'}',
+                      style: const TextStyle(color: _textSec, fontSize: 11),
+                    ),
+                  ],
                 ),
-                if (grace > 0)
-                  Text("-$grace min",
-                      style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500)),
-              ],
-            ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                        color: c.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20)),
+                    child: Text(type,
+                        style: TextStyle(
+                            color: c,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 11)),
+                  ),
+                  if (grace > 0) ...[
+                    const SizedBox(height: 4),
+                    Text('-$grace min',
+                        style: const TextStyle(
+                            color: _rose,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ],
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildEmptyState() {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 40),
-      child: Center(
+  Widget _emptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
         child: Column(
           children: [
-            Icon(Icons.history_toggle_off, size: 48, color: Colors.grey),
-            SizedBox(height: 8),
-            Text("No logs found yet.", style: TextStyle(color: Colors.grey)),
+            Icon(Icons.history_toggle_off,
+                size: 48, color: _textSec.withOpacity(0.3)),
+            const SizedBox(height: 12),
+            const Text('No logs yet',
+                style: TextStyle(color: _textSec, fontSize: 14)),
           ],
         ),
       ),
     );
   }
+}
+
+// ── Arc painter for grace circle ──────────────────
+class _ArcPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  _ArcPainter({required this.progress, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 4;
+    final bg = Paint()
+      ..color = color.withOpacity(0.1)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round;
+    final fg = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round;
+    canvas.drawCircle(center, radius, bg);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -math.pi / 2,
+      2 * math.pi * progress,
+      false,
+      fg,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ArcPainter old) => old.progress != progress;
 }
